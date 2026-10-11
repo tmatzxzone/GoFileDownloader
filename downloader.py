@@ -149,6 +149,7 @@ class Downloader:
                     "download_path": str(Path.cwd()),
                     "filename": data["name"],
                     "download_link": data["link"],
+                    "size": data.get("size"),
                 },
             )
 
@@ -196,6 +197,60 @@ class Downloader:
         else:
             append_file_info(files_info, data)
 
+    @staticmethod
+    def _format_size(size: int | float | None) -> str:
+        """Format a file size for the selection list."""
+        if size is None:
+            return "size unknown"
+        value = float(size)
+        for unit in ("B", "KB", "MB", "GB", "TB"):
+            if value < 1024 or unit == "TB":
+                return f"{value:.1f} {unit}"
+            value /= 1024
+        return f"{value:.1f} TB"
+
+    def select_files(self, files_info: list[dict]) -> list[dict]:
+        """Let the user choose which files to download before starting."""
+        if not files_info:
+            return []
+
+        print("\nFiles found in this GoFile folder:")
+        for index, item in enumerate(files_info, start=1):
+            relative_path = Path(item["download_path"]) / item["filename"]
+            size_text = self._format_size(item.get("size"))
+            print(f"  [{index}] {relative_path} ({size_text})")
+
+        print("\nEnter file numbers separated by commas or spaces (example: 1, 3 5).")
+        print("Enter A to download all files, or Q to cancel.")
+        while True:
+            choice = input("Selection: ").strip()
+            if choice.lower() == "q":
+                print("Download cancelled.")
+                return []
+            if not choice or choice.lower() == "a":
+                return files_info
+
+            try:
+                selected_indexes = {
+                    int(value)
+                    for value in choice.replace(",", " ").split()
+                }
+            except ValueError:
+                print("Invalid selection. Enter numbers, A, or Q.")
+                continue
+
+            if not selected_indexes or any(
+                index < 1 or index > len(files_info)
+                for index in selected_indexes
+            ):
+                print(f"Choose numbers between 1 and {len(files_info)}, A, or Q.")
+                continue
+
+            return [
+                item for index, item in enumerate(files_info, start=1)
+                if index in selected_indexes
+            ]
+
     def initialize_download(self) -> None:
         """Initialize the download process."""
         content_id = get_content_id(self.url)
@@ -210,12 +265,22 @@ class Downloader:
         )
         self.parse_links(content_id, files_info, hashed_password)
 
-        if files_info and all(
-            (Path(item["download_path"]) / item["filename"]).is_file()
-            for item in files_info
-        ):
-            print("All files have already been downloaded.")
+        if not files_info:
+            print("No files found to download.")
             return
+
+        files_info = self.select_files(files_info)
+        if not files_info:
+            return
+
+        pending_files = [
+            item for item in files_info
+            if not (Path(item["download_path"]) / item["filename"]).is_file()
+        ]
+        if not pending_files:
+            print("All selected files have already been downloaded.")
+            return
+        files_info = pending_files
 
         # Remove the root content directory if there's no file or subdirectory.
         if not os.listdir(content_directory) and not files_info:
