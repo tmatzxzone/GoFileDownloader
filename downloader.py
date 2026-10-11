@@ -28,7 +28,6 @@ from src.config import (
 )
 from src.download_utils import save_file_with_progress
 from src.file_utils import create_download_directory
-from src.general_utils import clear_terminal
 from src.gofile_utils import (
     check_response_status,
     generate_content_url,
@@ -81,10 +80,6 @@ class Downloader:
 
         # Skip file if it already exists and is not empty
         if Path(final_path).exists():
-            self.live_manager.update_log(
-                event="Skipped download",
-                details=f"{filename} has already been downloaded.",
-            )
             return
 
         headers = self._prepare_headers(url=download_link)
@@ -215,6 +210,13 @@ class Downloader:
         )
         self.parse_links(content_id, files_info, hashed_password)
 
+        if files_info and all(
+            (Path(item["download_path"]) / item["filename"]).is_file()
+            for item in files_info
+        ):
+            print("All files have already been downloaded.")
+            return
+
         # Remove the root content directory if there's no file or subdirectory.
         if not os.listdir(content_directory) and not files_info:
             Path(content_directory).rmdir()
@@ -247,14 +249,14 @@ def handle_download_process(
 
 def main() -> None:
     """Process command-line arguments to download an album from a specified URL."""
-    clear_terminal()
     args = parse_arguments()
     live_manager = initialize_managers()
 
     try:
-        with live_manager.live:
-            handle_download_process(args.url, live_manager, args=args)
-            live_manager.stop()
+        # Do not render the Rich dashboard/log table in notebooks. Per-file
+        # progress and transfer speed are displayed by download_utils instead.
+        handle_download_process(args.url, live_manager, args=args)
+        live_manager.stop()
 
     except KeyboardInterrupt:
         sys.exit(1)
